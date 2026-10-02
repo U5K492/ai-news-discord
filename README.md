@@ -20,11 +20,11 @@ Node.js 22.12 以上と pnpm を使う。`.mise.toml` は Node 24.15.0 を指定
 
 ```sh
 cd ~/Documents/WorkSpace/tools/ai-news-discord
-rtk proxy mise exec -- pnpm install --frozen-lockfile
-rtk proxy mise exec -- pnpm preview
-rtk proxy mise exec -- pnpm test
-rtk proxy mise exec -- pnpm check
-rtk proxy mise exec -- pnpm exec wrangler deploy --dry-run
+rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm install --frozen-lockfile
+rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm preview
+rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm test
+rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm check
+rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec wrangler deploy --dry-run
 ```
 
 `pnpm preview` は公開フィードから配信文を表示する。Discord 投稿と履歴更新はしない。
@@ -39,10 +39,10 @@ rtk proxy mise exec -- pnpm exec wrangler deploy --dry-run
 3. Cloudflare にログインして、Worker を配置する
 
 ```sh
-rtk proxy mise exec -- pnpm exec wrangler login
-rtk proxy mise exec -- pnpm exec wrangler whoami
-rtk proxy mise exec -- pnpm deploy
-rtk proxy mise exec -- pnpm exec wrangler secret bulk ../../tmp/ai-news-discord_secrets.json
+rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec wrangler login
+rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec wrangler whoami
+rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm deploy
+rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec wrangler secret bulk ../../tmp/ai-news-discord_secrets.json
 ```
 
 Webhook は実際の `https://discord.com/api/webhooks/...` URL を使う。
@@ -59,9 +59,9 @@ Worker の公開 URL は `wrangler deploy` の出力で確認できる。
 秘密をコマンド引数に書かず、`scripts/control.ts` を使う。
 
 ```sh
-rtk proxy mise exec -- pnpm exec tsx scripts/control.ts https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev preview
-rtk proxy mise exec -- pnpm exec tsx scripts/control.ts https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev run
-rtk proxy mise exec -- pnpm exec tsx scripts/control.ts https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev status
+rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec tsx scripts/control.ts https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev preview
+rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec tsx scripts/control.ts https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev run
+rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec tsx scripts/control.ts https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev status
 ```
 
 `preview` は配信履歴を考慮した内容確認、`run` は実際の投稿、`status` は直近の配信履歴を返す。
@@ -79,7 +79,7 @@ HTTP 429 は Discord の `retry_after` に従って最大 4 回まで試す。
 通信切断・HTTP 5xx・保存確認の欠落は、投稿済みか判断できないので `pending` に残して自動再送しない。
 この場合は `status` と Discord のチャンネルを照合する。厳密な一回だけの配送を保証するものではない。
 
-ログは `rtk proxy mise exec -- pnpm exec wrangler tail` または Cloudflare Dashboard の Worker Logs で確認する。
+ログは `rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec wrangler tail` または Cloudflare Dashboard の Worker Logs で確認する。
 配信履歴を消すと再通知が起きるため、確認せずに Durable Object の移行・削除をしない。
 
 ## 設定を変える場所
