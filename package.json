@@ -2,6 +2,7 @@
   "name": "ai-news-discord",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "engines": { "node": ">=22.12.0" },
   "scripts": {

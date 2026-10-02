@@ -8,6 +8,8 @@ Cloudflare 上で実行するため、PC の常時起動は不要。
 LLM API による翻訳・要約は行わない。
 
 - [仕組みの全体像](#仕組みの全体像)
+- [Discord に届く通知例](#discord-に届く通知例)
+- [運用費用](#運用費用)
 - [まずローカルで確認する](#まずローカルで確認する)
 - [初回セットアップ](#初回セットアップ)
 - [設定の変更](#設定の変更)
@@ -54,11 +56,54 @@ arXiv は未査読の研究も含み、更新日時が新しい論文改訂も�
 | arXiv | cs.AI / cs.CL の論文フィード |
 | Claude Code | GitHub Releases の Atom |
 
+## Discord に届く通知例
+
+架空の記事による表示例。1 記事が 1 メッセージになり、`(1/3)` はその回の 3 件中 1 件目を表す。
+
+```text
+AI エージェント / LLM 更新 — 2026/10/03 (1/3)
+
+Example agent model with tool calling
+Example AI Blog | 10/03 07:30 JST
+A sample release describing new tool calling capabilities for AI agents.
+<https://example.org/agent-release>
+```
+
+タイトルと概要は原文のまま。概要は最大 350 文字に整え、メンションとリンクのプレビュー表示を抑える。
+情報源の取得が一部失敗した場合は、通知の末尾に取得できなかった情報源を付記する。
+
+## 運用費用
+
+2026-10-03 時点の公式料金に基づく。アカウントの契約プランと合計使用量で実際の費用が決まる。
+
+| 項目 | 料金の考え方 |
+| --- | --- |
+| Workers Free + SQLite Durable Objects | それぞれの無料枠内なら無料。Free の上限超過は追加課金ではなく処理エラー |
+| Workers Paid | アカウント全体で最低月 5 米ドル。Durable Objects の利用枠も含み、超過分は従量課金 |
+| LLM API | この構成では使用しないため、LLM API の料金は発生しない |
+
+SQLite Durable Objects の Free 枠には、1 日 10 万リクエスト、500 万行の読み込み、10 万行の書き込み、合計 5 GB の保存容量などがある。
+実行時間にも無料枠があり、詳細は [Durable Objects の公式料金](https://developers.cloudflare.com/durable-objects/platform/pricing/) を参照する。
+Workers の基本料金と無料枠は [Workers の公式料金](https://developers.cloudflare.com/workers/platform/pricing/) を参照する。
+
+この Worker の定期実行は 1 日 3 回、Discord 投稿は最大 15 件。
+単独の通常運用では Free の無料枠に十分収まる想定だが、同じアカウントの他のアプリの利用量も合算される。
+現在の契約プランと使用量は Cloudflare Dashboard で確認する。
+
 ## まずローカルで確認する
 
 Node.js **24.15.0** と pnpm **11.21.0** を推奨する。
-Node のバージョンは [.mise.toml](.mise.toml)、CI のバージョンは [ci.yml](.github/workflows/ci.yml) に固定している。
+両方のバージョンを [.mise.toml](.mise.toml) と [ci.yml](.github/workflows/ci.yml) に固定している。
 Node・pnpm を用意し、リポジトリのルートで実行する。
+
+mise のシェル連携を使う場合は、設定を信頼し、必要な 2 ツールだけを指定してインストールする。
+
+```sh
+mise trust .mise.toml
+mise install node@24.15.0 pnpm@11.21.0
+```
+
+mise を使わない場合も、この 2 つのバージョンを用意する。
 
 ```sh
 pnpm install --frozen-lockfile
@@ -262,6 +307,8 @@ pnpm control https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev resolve-not-sent
 ```text
 .
 ├── README.md                    全体像・設定・運用の入口
+├── LICENSE                      MIT ライセンス
+├── .mise.toml                   Node と pnpm のバージョン固定
 ├── .github/workflows/ci.yml      GitHub の push / PR でチェック
 ├── .secrets.example.json        本番・管理 CLI 用の空の秘密設定例
 ├── .dev.vars.example            ローカル Worker 用の空の秘密設定例
@@ -305,6 +352,18 @@ gh repo create ai-news-discord --private --source . --remote origin --push
 git remote add origin git@github.com:YOUR-ACCOUNT/ai-news-discord.git
 git push -u origin main
 ```
+
+初回 push 後は GitHub の Actions タブで `CI` が成功したことを確認する。
+GitHub CLI では次のコマンドで一覧と個別の結果を確認できる。
+
+```sh
+gh run list --workflow ci.yml --limit 5
+gh run view RUN_ID
+```
+
+## ライセンス
+
+[MIT](LICENSE)。著作権表示とライセンス文を残したうえで利用・変更・再配布できる。
 
 ## 公式ドキュメント
 
