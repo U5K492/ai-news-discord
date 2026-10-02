@@ -76,7 +76,7 @@ async function authorized(request: Request, env: Env): Promise<boolean> {
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
-    if (path === "/health" && request.method === "GET") return Response.json({ ok: true, webhookConfigured: !!env.DISCORD_WEBHOOK_URL, schedule: "08:00 Asia/Tokyo" });
+    if (path === "/health" && request.method === "GET") return Response.json({ ok: true, webhookConfigured: !!env.DISCORD_WEBHOOK_URL, schedule: "08:00, 16:00, 00:00 Asia/Tokyo" });
     if (!await authorized(request, env)) return Response.json({ error: "認証が必要です" }, { status: 401 });
     const digest = env.DIGEST.getByName("daily-discord-channel");
     if (path === "/status" && request.method === "GET") return Response.json(await digest.status());

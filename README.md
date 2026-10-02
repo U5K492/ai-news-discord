@@ -1,6 +1,6 @@
-# AI エージェント・LLM の更新を毎朝 Discord に届ける
+# AI エージェント・LLM の更新を 1 日 3 回 Discord に届ける
 
-Cloudflare Worker が毎朝 8:00 JST に公開フィードを取得し、新しい対象記事を最大 5 件配信する。
+Cloudflare Worker が毎日 8:00・16:00・翌 0:00 JST に公開フィードを取得し、各回で新しい対象記事を最大 5 件配信する。
 初版は LLM API を使わない。配信見出しは日本語、タイトルと概要は情報源の原文になる。
 概要を含まない記事はリンクを案内する。
 
@@ -94,7 +94,7 @@ rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnp
 
 `wrangler.jsonc` の `ARTICLE_LIMIT`（1–10）、`LOOKBACK_HOURS`（1–168）を変更して配置し直す。
 同一情報源の上限は `src/feeds.ts` の `select()` にある。
-8:00 JST は UTC の前日 23:00 に当たるため、Cron は `0 23 * * *` にしている。
+8:00・16:00・翌 0:00 JST は UTC の 23:00・7:00・15:00 に当たるため、Cron は `0 7,15,23 * * *` にしている。
 ローカルランタイムが対応する互換日付として `2026-10-01` を使う。
 
 ## 設定と実装の根拠

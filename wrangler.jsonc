@@ -10,7 +10,7 @@
     "ARTICLE_LIMIT": "5",
     "LOOKBACK_HOURS": "48"
   },
-  "triggers": {"crons": ["0 23 * * *"]},
+  "triggers": {"crons": ["0 7,15,23 * * *"]},
   "durable_objects": {
     "bindings": [{"name": "DIGEST", "class_name": "DigestDelivery"}]
   },

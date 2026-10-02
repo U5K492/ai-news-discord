@@ -104,7 +104,7 @@ it("preserves uncertain delivery and avoids automatic duplicate posts", async ()
 
 it("delivers the daily scheduled digest and persists the result", async () => {
   const ctx = createExecutionContext();
-  await app.scheduled(createScheduledController({ cron: "0 23 * * *" }), env, ctx);
+  await app.scheduled(createScheduledController({ cron: "0 7,15,23 * * *" }), env, ctx);
   await waitOnExecutionContext(ctx);
   expect(postCount).toBe(1);
   const status = await call("/status");
