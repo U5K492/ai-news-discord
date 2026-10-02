@@ -79,6 +79,14 @@ HTTP 429 は Discord の `retry_after` に従って最大 4 回まで試す。
 通信切断・HTTP 5xx・保存確認の欠落は、投稿済みか判断できないので `pending` に残して自動再送しない。
 この場合は `status` と Discord のチャンネルを照合する。厳密な一回だけの配送を保証するものではない。
 
+チャンネルと照合して結果が確定した記事だけ、`control.ts` の `resolve-sent` または `resolve-not-sent` で確認結果を記録できる。
+`resolve-not-sent` にした記事は、次の `run` または Cron で公開日時の範囲内なら再試行する。
+送信済み・拒否済みの履歴はこの操作で変更できない。
+
+```sh
+rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec tsx scripts/control.ts https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev resolve-not-sent https://example.org/article
+```
+
 ログは `rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec wrangler tail` または Cloudflare Dashboard の Worker Logs で確認する。
 配信履歴を消すと再通知が起きるため、確認せずに Durable Object の移行・削除をしない。
 

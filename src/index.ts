@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { collect, select } from "./feeds";
+import { boundedText, canonicalUrl, collect, select } from "./feeds";
 import { DeliveryError, message, post, validateWebhook } from "./discord";
 
 type Delivery = { url: string; state: string; updated: string; message_id: string | null };
@@ -16,6 +16,15 @@ export class DigestDelivery extends DurableObject<Env> {
     const deliveries = this.ctx.storage.sql.exec<Delivery>("SELECT * FROM deliveries ORDER BY updated DESC LIMIT 100").toArray();
     const pending = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM deliveries WHERE state = 'pending'").one().count;
     return { running: this.running, pending, deliveries };
+  }
+
+  async resolvePending(url: string, outcome: "sent" | "not_sent") {
+    if (this.running) throw new Error("配信処理が実行中です");
+    const state = outcome === "sent" ? "sent" : "rejected";
+    const rows = this.ctx.storage.sql.exec<{ url: string }>("UPDATE deliveries SET state = ?, updated = ? WHERE url = ? AND state = 'pending' RETURNING url",
+      state, new Date().toISOString(), canonicalUrl(url)).toArray();
+    if (!rows.length) throw new Error("対象記事は確認待ちの状態ではありません");
+    return { resolved: rows[0].url, state };
   }
 
   async run(preview: boolean) {
@@ -71,8 +80,14 @@ export default {
     if (!await authorized(request, env)) return Response.json({ error: "認証が必要です" }, { status: 401 });
     const digest = env.DIGEST.getByName("daily-discord-channel");
     if (path === "/status" && request.method === "GET") return Response.json(await digest.status());
-    if (!["/preview", "/run"].includes(path) || request.method !== "POST") return Response.json({ error: "Not found" }, { status: 404 });
+    if (!["/preview", "/run", "/resolve"].includes(path) || request.method !== "POST") return Response.json({ error: "Not found" }, { status: 404 });
     try {
+      if (path === "/resolve") {
+        const data: unknown = JSON.parse(await boundedText(new Response(request.body), 4096));
+        if (!data || typeof data !== "object" || !("url" in data) || typeof data.url !== "string"
+          || !("outcome" in data) || (data.outcome !== "sent" && data.outcome !== "not_sent")) return Response.json({ error: "url と outcome (sent / not_sent) が必要です" }, { status: 400 });
+        return Response.json(await digest.resolvePending(data.url, data.outcome));
+      }
       return Response.json(await digest.run(path === "/preview"));
     } catch (error) {
       const message = error instanceof Error ? error.message : "配信処理に失敗しました";

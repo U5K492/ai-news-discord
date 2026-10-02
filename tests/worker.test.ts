@@ -18,17 +18,21 @@ const feed = `<feed xmlns="http://www.w3.org/2005/Atom">
 let failAll = false;
 let postCount = 0;
 let uncertain = false;
+let redirect = false;
 beforeEach(async () => {
   await reset();
   failAll = false;
   postCount = 0;
   uncertain = false;
+  redirect = false;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    new Request(input, init);
     const url = String(input);
     if (SOURCES.some(source => source.url === url)) return new Response(feed, { status: failAll ? 503 : 200 });
     if (url === "https://discord.com/api/webhooks/123/test-token?wait=true") {
       postCount++;
       if (uncertain) throw new Error("connection lost");
+      if (redirect) return new Response(null, { status: 302, headers: { Location: "https://other.example/" } });
       const payload = JSON.parse(String(init?.body));
       expect(payload.allowed_mentions).toEqual({ parse: [] });
       expect(payload.content.length).toBeLessThanOrEqual(2000);
@@ -43,6 +47,13 @@ function call(path: string) {
   return worker.default.fetch(`https://worker.example${path}`, {
     method: path === "/status" ? "GET" : "POST",
     headers: { Authorization: "Bearer test-admin-token" }
+  });
+}
+
+function resolvePending(outcome: "sent" | "not_sent") {
+  return worker.default.fetch("https://worker.example/resolve", {
+    method: "POST", headers: { Authorization: "Bearer test-admin-token", "Content-Type": "application/json" },
+    body: JSON.stringify({ url: "https://example.org/agent", outcome })
   });
 }
 
@@ -99,6 +110,53 @@ it("delivers the daily scheduled digest and persists the result", async () => {
   const status = await call("/status");
   const result = await status.json() as { deliveries: { state: string }[] };
   expect(result.deliveries[0].state).toBe("sent");
+});
+
+it("rejects a redirect without following it and allows retry after fixing the webhook", async () => {
+  redirect = true;
+  const first = await call("/run");
+  expect(first.status).toBe(502);
+  expect(postCount).toBe(1);
+  const state = await (await call("/status")).json() as { deliveries: { state: string }[] };
+  expect(state.deliveries[0].state).toBe("rejected");
+  redirect = false;
+  const second = await call("/run");
+  expect(second.status).toBe(200);
+  expect((await second.json() as { sent: number }).sent).toBe(1);
+});
+
+it("only retries a pending article after the operator confirms it was not sent", async () => {
+  uncertain = true;
+  await (await call("/run")).json();
+  const resolution = await resolvePending("not_sent");
+  expect(resolution.status).toBe(200);
+  expect((await resolution.json() as { state: string }).state).toBe("rejected");
+  const duplicateResolution = await resolvePending("sent");
+  expect(duplicateResolution.status).toBe(502);
+  await duplicateResolution.json();
+  const status = await (await call("/status")).json() as { deliveries: { state: string }[] };
+  expect(status.deliveries[0].state).toBe("rejected");
+  uncertain = false;
+  expect((await call("/run")).status).toBe(200);
+  expect(postCount).toBe(2);
+  await (await call("/run")).json();
+  expect(postCount).toBe(2);
+});
+
+it("keeps a manually confirmed sent article out of retries and refuses to rewrite its history", async () => {
+  uncertain = true;
+  await (await call("/run")).json();
+  const resolution = await resolvePending("sent");
+  expect(resolution.status).toBe(200);
+  await resolution.json();
+  uncertain = false;
+  await (await call("/run")).json();
+  expect(postCount).toBe(1);
+  const rewrite = await resolvePending("not_sent");
+  expect(rewrite.status).toBe(502);
+  await rewrite.json();
+  const status = await (await call("/status")).json() as { deliveries: { state: string }[] };
+  expect(status.deliveries[0].state).toBe("sent");
 });
 
 it("does not send the same article twice across simultaneous requests", async () => {

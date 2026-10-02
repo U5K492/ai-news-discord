@@ -33,7 +33,7 @@ export async function post(url: string, content: string): Promise<string> {
   for (let attempt = 0; attempt < 4; attempt++) {
     let response: Response;
     try {
-      response = await fetch(url, { method: "POST", redirect: "error", headers: { "Content-Type": "application/json" },
+      response = await fetch(url, { method: "POST", redirect: "manual", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, allowed_mentions: { parse: [] }, flags: 4 }), signal: AbortSignal.timeout(20_000) });
     } catch {
       throw new DeliveryError("Discord の投稿結果が不明です。チャンネルを確認してください", false);
@@ -48,7 +48,7 @@ export async function post(url: string, content: string): Promise<string> {
       await new Promise(resolve => setTimeout(resolve, seconds * 1000 + 100));
       continue;
     }
-    throw new DeliveryError(`Discord 投稿に失敗しました (HTTP ${response.status})`, response.status >= 400 && response.status < 500);
+    throw new DeliveryError(`Discord 投稿に失敗しました (HTTP ${response.status})`, response.status >= 300 && response.status < 500);
   }
   throw new DeliveryError("Discord 投稿に失敗しました", true);
 }
