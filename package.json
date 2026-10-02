@@ -1,0 +1,28 @@
+{
+  "name": "ai-news-discord",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "dev": "wrangler dev --test-scheduled",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "preview": "tsx scripts/preview.ts"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.11.2",
+    "he": "^1.2.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.3.5",
+    "@types/he": "^1.2.3",
+    "@types/node": "^26.6.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.146.0"
+  }
+}

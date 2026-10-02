@@ -1,0 +1,9 @@
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: false
+supportedArchitectures:
+  os:
+    - current
+  cpu:
+    - current
