@@ -9,5 +9,5 @@ export default defineConfig({
       ADMIN_TOKEN: "test-admin-token"
     } }
   })],
-  test: { fileParallelism: false }
+  test: { include: ["tests/worker.test.ts"], fileParallelism: false }
 });

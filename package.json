@@ -9,8 +9,10 @@
     "deploy": "wrangler deploy",
     "types": "wrangler types",
     "check": "tsc --noEmit",
-    "test": "vitest run",
-    "preview": "tsx scripts/preview.ts"
+    "test": "vitest run && pnpm test:control",
+    "test:control": "tsx --test tests/control.test.ts",
+    "preview": "tsx scripts/preview.ts",
+    "control": "tsx scripts/control.ts"
   },
   "dependencies": {
     "fast-xml-parser": "^5.11.2",

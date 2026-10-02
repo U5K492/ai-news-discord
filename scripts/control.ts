@@ -7,13 +7,22 @@ const resolve = action.startsWith("resolve-");
 if (resolve && !articleUrl) throw new Error("確認結果を記録する記事 URL を指定してください");
 const endpoint = new URL(`/${resolve ? "resolve" : action}`, base);
 if (endpoint.protocol !== "https:" && endpoint.hostname !== "localhost" && endpoint.hostname !== "127.0.0.1") throw new Error("HTTPS の Worker URL を指定してください");
-const path = new NodeURL("../../../tmp/ai-news-discord_secrets.json", import.meta.url);
-const secrets = JSON.parse(await readFile(path, "utf8")) as { ADMIN_TOKEN?: string };
-if (!secrets.ADMIN_TOKEN) throw new Error("ADMIN_TOKEN が未設定です");
+let token = process.env.ADMIN_TOKEN;
+if (!token) {
+  const path = process.env.AI_NEWS_SECRETS_FILE ?? new NodeURL("../.secrets.json", import.meta.url);
+  let secrets: { ADMIN_TOKEN?: unknown };
+  try {
+    secrets = JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    throw new Error("秘密設定を読み込めません。.secrets.json または AI_NEWS_SECRETS_FILE を確認してください");
+  }
+  if (!secrets || typeof secrets.ADMIN_TOKEN !== "string" || !secrets.ADMIN_TOKEN.trim()) throw new Error("ADMIN_TOKEN が未設定です");
+  token = secrets.ADMIN_TOKEN;
+}
 let response: Response;
 try {
   response = await fetch(endpoint, { method: action === "status" ? "GET" : "POST", redirect: "error",
-    headers: { Authorization: `Bearer ${secrets.ADMIN_TOKEN}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: resolve ? JSON.stringify({ url: articleUrl, outcome: action === "resolve-sent" ? "sent" : "not_sent" }) : undefined,
     signal: AbortSignal.timeout(300_000) });
 } catch {

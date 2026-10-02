@@ -5,4 +5,8 @@ node_modules/
 !.dev.vars.example
 .env
 .env.*
+.secrets.json
+.secrets.*.json
+!.secrets.example.json
+secrets.json
 dist/

@@ -1,105 +1,315 @@
-# AI エージェント・LLM の更新を 1 日 3 回 Discord に届ける
+# AI News Discord
 
-Cloudflare Worker が毎日 8:00・16:00・翌 0:00 JST に公開フィードを取得し、各回で新しい対象記事を最大 5 件配信する。
-初版は LLM API を使わない。配信見出しは日本語、タイトルと概要は情報源の原文になる。
-概要を含まない記事はリンクを案内する。
+AI エージェント・LLM に関する公開フィードの更新を集め、毎日 **8:00・16:00・翌 0:00（日本時間）** に Discord へ配信する。
+Cloudflare 上で実行するため、PC の常時起動は不要。
 
-## 配信する内容と情報源
+各回最大 5 件を、記事ごとに「タイトル・概要・リンク」の 1 メッセージとして投稿する。
+見出しは日本語、記事のタイトルと概要は情報源の原文。概要がない記事はリンクを案内する。
+LLM API による翻訳・要約は行わない。
 
-OpenAI News、Google DeepMind、Hugging Face Blog、arXiv cs.AI / cs.CL、Claude Code Releases を対象にする。
-`src/sources.ts` で変更できる。
-直近 48 時間の記事を関連キーワードで絞り、技術的なタイトルを優先する。
-同じ情報源は最大 2 件、全体では最大 5 件にする。
-重要度は単純なキーワードによる順位付けであり、LLM による評価ではない。
-arXiv は未査読の研究も含み、更新日時の新しい論文改訂も対象になる。
-公開フィードに載らない記事・SNS の投稿を網羅する構成ではない。
+- [仕組みの全体像](#仕組みの全体像)
+- [まずローカルで確認する](#まずローカルで確認する)
+- [初回セットアップ](#初回セットアップ)
+- [設定の変更](#設定の変更)
+- [手動操作と日々の確認](#手動操作と日々の確認)
+- [投稿に失敗したとき](#投稿に失敗したとき)
+- [ファイル構成](#ファイル構成)
+- [GitHub での管理](#github-での管理)
 
-## ローカルで配信内容を確かめる
+## 仕組みの全体像
 
-Node.js 22.12 以上と pnpm を使う。`.mise.toml` は Node 24.15.0 を指定している。
-
-```sh
-cd ~/Documents/WorkSpace/tools/ai-news-discord
-rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm install --frozen-lockfile
-rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm preview
-rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm test
-rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm check
-rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec wrangler deploy --dry-run
+```mermaid
+flowchart TD
+    Cron["Cloudflare Cron<br/>08:00 / 16:00 / 00:00 JST"] --> Worker["Worker<br/>定期実行・管理 API"]
+    CLI["管理用 CLI<br/>preview / run / status / resolve"] -->|Bearer 認証| Worker
+    Worker --> DO["Durable Object<br/>配信処理・同時実行の抑制"]
+    Feeds["公開 RSS / Atom<br/>OpenAI・DeepMind・HF・arXiv・Claude Code"] -->|取得| DO
+    DO <-->|配信履歴の読み書き| DB[(SQLite)]
+    DO -->|1 記事ずつ Webhook 投稿| Discord["Discord チャンネル"]
+    Discord -->|投稿 ID を返す| DO
 ```
 
-`pnpm preview` は公開フィードから配信文を表示する。Discord 投稿と履歴更新はしない。
-テストは Workers ランタイムと SQLite を使い、外部フィードと Discord を模擬する。
-テストの秘密設定は `vitest.config.ts` の模擬値に固定している。
+Durable Object（状態を保持する Cloudflare の実行単位）が、収集から投稿・履歴更新までを担当する。
+履歴はその中の SQLite に保存し、外部データベースを別途用意する必要はない。
+1 つの Worker で 1 つの配信先を扱い、定期実行と手動操作は同じ配信履歴を使う。
 
-## 配信を開始するための設定
+1. 前回までに送信済み・確認待ちとなった記事 URL を読み込む
+2. 公開フィードを並列に取得し、直近 48 時間の AI エージェント・LLM 関連記事を選ぶ
+3. キーワードと情報源の優先度で並べ、同じ情報源は最大 2 件、全体で最大 5 件に絞る
+4. 記事の履歴を `pending` に保存してから、Discord に順番に投稿する
+5. Discord が返した投稿 ID を確認できた記事を `sent` に更新する
 
-1. Discord のサーバー設定 → 連携サービス → ウェブフックで、配信先チャンネルの Webhook を作成する
-2. `~/Documents/WorkSpace/tmp/ai-news-discord_secrets.json` の `DISCORD_WEBHOOK_URL` に URL を保存する
-   `ADMIN_TOKEN` は生成済み。どちらの値もチャットや git に載せない
-3. Cloudflare にログインして、Worker を配置する
-
-```sh
-rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec wrangler login
-rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec wrangler whoami
-rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm deploy
-rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec wrangler secret bulk ../../tmp/ai-news-discord_secrets.json
-```
-
-Webhook は実際の `https://discord.com/api/webhooks/...` URL を使う。
-`DISCORD_WEBHOOK_URL` が空のまま secret bulk を実行しない。
-Cron は秘密情報の設定前には投稿できず、実行エラーになる。
-ログイン済みアカウントが複数ある場合は `wrangler.jsonc` に本件の `account_id` を指定してから配置する。
-秘密設定後に手動のプレビューと配信を確認する。
-Cron の変更は伝播に時間がかかることがある。
-
-## 手動確認と配信状態
-
-Worker の公開 URL は `wrangler deploy` の出力で確認できる。
-以下の操作は `Authorization: Bearer <ADMIN_TOKEN>` ヘッダーが必要になる。
-秘密をコマンド引数に書かず、`scripts/control.ts` を使う。
-
-```sh
-rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec tsx scripts/control.ts https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev preview
-rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec tsx scripts/control.ts https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev run
-rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec tsx scripts/control.ts https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev status
-```
-
-`preview` は配信履歴を考慮した内容確認、`run` は実際の投稿、`status` は直近の配信履歴を返す。
-`/health` は認証なしで秘密情報の設定有無と実行予定時刻を返す。配信の成功保証ではない。
+同じ URL の記事は、追跡パラメーターや arXiv の版番号が違ってもまとめて扱う。
 新しい対象記事がなければ投稿しない。
-フィード取得の一部失敗は配信文・実行結果に表示し、全情報源の失敗は実行を失敗として扱う。
+重要度の判定はキーワードによる順位付け。登録した公開フィードが対象で、Web・SNS 全体を収集する構成ではない。
+arXiv は未査読の研究も含み、更新日時が新しい論文改訂も対象になる。
 
-## 再通知と応答が不明な投稿
+現在の情報源は [src/sources.ts](src/sources.ts) に定義している。
 
-配信履歴は Durable Object の SQLite に保存する。
-追跡パラメーターと arXiv のバージョン違いを URL 正規化でまとめ、投稿済み記事の再配信を避ける。
-投稿前に `pending`、Discord の保存確認後に `sent` にする。
-HTTP 429 は Discord の `retry_after` に従って最大 4 回まで試す。
-明確な HTTP 4xx の拒否は `rejected` とし、次の実行で再試行できる。
-通信切断・HTTP 5xx・保存確認の欠落は、投稿済みか判断できないので `pending` に残して自動再送しない。
-この場合は `status` と Discord のチャンネルを照合する。厳密な一回だけの配送を保証するものではない。
+| 情報源 | 対象 |
+| --- | --- |
+| OpenAI News | ニュース RSS |
+| Google DeepMind | ブログ RSS |
+| Hugging Face | ブログ RSS |
+| arXiv | cs.AI / cs.CL の論文フィード |
+| Claude Code | GitHub Releases の Atom |
 
-チャンネルと照合して結果が確定した記事だけ、`control.ts` の `resolve-sent` または `resolve-not-sent` で確認結果を記録できる。
-`resolve-not-sent` にした記事は、次の `run` または Cron で公開日時の範囲内なら再試行する。
-送信済み・拒否済みの履歴はこの操作で変更できない。
+## まずローカルで確認する
+
+Node.js **24.15.0** と pnpm **11.21.0** を推奨する。
+Node のバージョンは [.mise.toml](.mise.toml)、CI のバージョンは [ci.yml](.github/workflows/ci.yml) に固定している。
+Node・pnpm を用意し、リポジトリのルートで実行する。
 
 ```sh
-rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec tsx scripts/control.ts https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev resolve-not-sent https://example.org/article
+pnpm install --frozen-lockfile
+pnpm preview
 ```
 
-ログは `rtk proxy env PATH="$HOME/.local/share/mise/installs/node/24.15.0/bin:$PATH" pnpm exec wrangler tail` または Cloudflare Dashboard の Worker Logs で確認する。
-配信履歴を消すと再通知が起きるため、確認せずに Durable Object の移行・削除をしない。
+`pnpm preview` は現在の公開フィードから配信候補の文面を表示する。
+Discord への投稿・履歴更新はせず、Cloudflare のログインや秘密設定も不要。
+このローカルプレビューには本番の配信履歴がなく、件数・期間は 5 件・48 時間に固定している。
+本番で実際に配信対象となる記事は、後述の `pnpm control ... preview` で確認する。
 
-## 設定を変える場所
+```sh
+pnpm check
+pnpm test
+pnpm exec wrangler deploy --dry-run
+```
 
-`wrangler.jsonc` の `ARTICLE_LIMIT`（1–10）、`LOOKBACK_HOURS`（1–168）を変更して配置し直す。
-同一情報源の上限は `src/feeds.ts` の `select()` にある。
-8:00・16:00・翌 0:00 JST は UTC の 23:00・7:00・15:00 に当たるため、Cron は `0 7,15,23 * * *` にしている。
-ローカルランタイムが対応する互換日付として `2026-10-01` を使う。
+Worker のテストは Workers ランタイムと SQLite を使い、外部フィードと Discord を模擬する。
+管理 CLI のテストはローカルの模擬 HTTP サーバーを使う。
+いずれも実際の Discord には投稿しない。
 
-## 設定と実装の根拠
+## 初回セットアップ
+
+### 1. Discord の配信先を作る
+
+Discord のサーバー設定 → 連携サービス → ウェブフックで Webhook を作成し、投稿先チャンネルを選ぶ。
+作成にはサーバー側の「ウェブフックの管理」権限が必要になる。
+Webhook URL をコピーして、次の秘密設定ファイルに保存する。
+
+### 2. 秘密設定を用意する
+
+プロジェクトのルートで、空の設定例から `.secrets.json` を作り、管理用のランダムなトークンを生成する。
+トークンはファイルに直接書き込み、端末には表示しない。
+既にファイルを用意している場合は、この生成コマンドを実行せず既存の設定を使う。
+
+```sh
+node --input-type=module -e '
+import { randomBytes } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+const settings = JSON.parse(readFileSync(".secrets.example.json", "utf8"));
+settings.ADMIN_TOKEN = randomBytes(32).toString("hex");
+writeFileSync(".secrets.json", JSON.stringify(settings, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+'
+```
+
+`.secrets.json` をエディターで開き、`DISCORD_WEBHOOK_URL` にコピーした URL を入力する。
+生成した `ADMIN_TOKEN` はそのまま使う。
+
+| キー | 用途 |
+| --- | --- |
+| `DISCORD_WEBHOOK_URL` | Discord の投稿先。`https://discord.com/api/webhooks/...` の実際の URL |
+| `ADMIN_TOKEN` | 手動プレビュー・配信・履歴確認・復旧のための認証トークン |
+
+`.secrets.json` は git 管理の対象外。
+GitHub に保存するのは空の [.secrets.example.json](.secrets.example.json) のみ。
+秘密の値は `wrangler.jsonc` や README に書かない。
+
+### 3. Cloudflare にログインして配置する
+
+```sh
+pnpm exec wrangler login
+pnpm exec wrangler whoami
+pnpm run deploy --secrets-file .secrets.json
+```
+
+このコマンドで Worker・Cron・SQLite Durable Object を配置し、秘密設定も同時に登録する。
+Cron は秘密設定なしでは投稿できないため、初回は `--secrets-file` を付ける。
+配置後に表示される `https://ai-news-discord.<サブドメイン>.workers.dev` が Worker の URL になる。
+Cloudflare アカウントが複数ある場合は、配置前に `wrangler.jsonc` の `account_id` で対象を指定する。
+既存の同名 Worker を更新する場合は、そのアカウントと設定を確認する。
+
+### 4. 本番の候補を確認する
+
+以下の `YOUR-SUBDOMAIN` を配置時の出力に置き換える。
+
+```sh
+curl https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev/health
+pnpm control https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev preview
+pnpm control https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev status
+```
+
+`/health` の `webhookConfigured: true` は Webhook の値が設定されていることだけを表す。
+URL の有効性・管理トークン・配信成功を確認するものではない。
+`preview` の候補を確認し、すぐに初回配信したい場合は次を実行する。この操作は **実際に Discord に投稿する**。
+
+```sh
+pnpm control https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev run
+```
+
+以後は Cloudflare の Cron が定期実行する。
+Cron 設定の反映には時間がかかることがある。[Cloudflare Cron の公式説明](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+
+## 設定の変更
+
+秘密以外の設定は [wrangler.jsonc](wrangler.jsonc) と `src/` で管理する。
+変更後に型生成・チェックを行い、配置し直す。
+
+| 変更したい内容 | 場所 | 初期値・範囲 |
+| --- | --- | --- |
+| 1 回の最大記事数 | `wrangler.jsonc` → `vars.ARTICLE_LIMIT` | `5`、1–10 |
+| 何時間前までの記事を探すか | `wrangler.jsonc` → `vars.LOOKBACK_HOURS` | `48`、1–168 |
+| 配信時刻 | `wrangler.jsonc` → `triggers.crons` | `0 7,15,23 * * *` |
+| 情報源・情報源の優先度 | `src/sources.ts` | 登録済み 5 フィード |
+| 関連キーワード・同じ情報源の上限 | `src/feeds.ts` → `score()` / `select()` | 同じ情報源は各回 2 件 |
+| 通知の文面 | `src/discord.ts` → `message()` | 日本語の見出し＋原文のタイトル・概要 |
+
+Cron の時刻は UTC。日本時間との対応は次のとおり。
+
+| 日本時間 | UTC |
+| --- | --- |
+| 8:00 | 前日 23:00 |
+| 16:00 | 7:00 |
+| 翌 0:00 | 15:00 |
+
+時刻を変更する場合は、`src/index.ts` の `/health` が返す `schedule` の表示も更新する。
+
+```sh
+pnpm types
+pnpm check
+pnpm test
+pnpm exec wrangler deploy --dry-run
+pnpm run deploy
+```
+
+通常の `pnpm run deploy` は既に登録した秘密設定を保持する。
+秘密設定も変更する場合は、更新したファイルを `pnpm run deploy --secrets-file .secrets.json` で登録する。
+既存運用の `name`、Durable Object のクラス名・名前・移行履歴を変える場合は、配信履歴への影響を確認する。
+別の Worker や別の Durable Object になると履歴を引き継がず、同じ記事を再通知する可能性がある。
+
+## 手動操作と日々の確認
+
+管理 CLI は `.secrets.json` の `ADMIN_TOKEN` を読み、Bearer 認証（管理トークンを使う認証）で Worker にアクセスする。
+トークンをコマンド引数に書く必要はない。
+
+| CLI の操作 | HTTP API | 動作 |
+| --- | --- | --- |
+| `preview` | `POST /preview` | 本番の履歴・設定を使って候補を表示。投稿・履歴更新なし |
+| `run` | `POST /run` | 候補を実際に Discord に配信 |
+| `status` | `GET /status` | 実行中フラグ・確認待ちの総数・最新 100 件の履歴 |
+| `resolve-sent <記事 URL>` | `POST /resolve` | 確認待ちの記事を送信済みにする |
+| `resolve-not-sent <記事 URL>` | `POST /resolve` | 確認待ちの記事を未送信として再試行対象にする |
+
+認証不要の API は `GET /health` のみ。
+`POST /resolve` の本文は `{"url":"記事 URL","outcome":"sent"}` または `{"url":"記事 URL","outcome":"not_sent"}`。
+
+秘密設定をリポジトリの外に保管している場合は、ファイルの場所を指定できる。
+既存の秘密設定ファイルを移動する必要はない。
+
+```sh
+AI_NEWS_SECRETS_FILE=/absolute/path/to/secrets.json pnpm control https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev status
+```
+
+環境変数 `ADMIN_TOKEN` が設定されている場合は、ファイルより優先する。
+
+実行ログは Cloudflare Dashboard の Worker Logs、または次のコマンドで確認する。
+
+```sh
+pnpm exec wrangler tail
+```
+
+ローカルで管理 API を動かす場合は `.dev.vars.example` を `.dev.vars` にコピーし、同じ秘密設定を入力して `pnpm dev` を実行する。
+ローカルの履歴は `.wrangler/` 内に保存され、本番と分かれる。
+ローカルでも `run` や定期実行のテストは設定した Webhook に実際に投稿するため、開発用チャンネルを使う。
+
+## 投稿に失敗したとき
+
+履歴の状態によって、次の実行で再送するかを決める。
+
+| 状態 | 意味 | 次回の動作 |
+| --- | --- | --- |
+| `sent` | Discord の投稿 ID を確認済み、または手動で送信済みと確認した | 再送しない |
+| `pending` | 投稿前に保存済みで、投稿結果はまだ確定していない | 自動再送しない |
+| `rejected` | 明確な拒否、または手動で未送信と確認した | 記事の選定条件を満たせば再試行 |
+
+HTTP 429 は Discord の `retry_after` に従い、最大 4 試行（初回＋再試行 3 回）。各待機は最大 60 秒。
+3xx / 4xx の明確な拒否は `rejected`、通信切断・5xx・投稿 ID の欠落は `pending` に残す。
+リダイレクト先には投稿しない。
+1 記事の投稿に失敗すると、その回の残りの記事の処理は止まる。
+フィード取得は一部が失敗しても継続し、全情報源が失敗した場合は配信を中止する。
+
+`pending` が残った場合は、`status` と Discord チャンネルを照合してから復旧する。
+送信済みと確認した場合：
+
+```sh
+pnpm control https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev resolve-sent https://example.org/article
+```
+
+未送信と確認した場合：
+
+```sh
+pnpm control https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev resolve-not-sent https://example.org/article
+```
+
+`resolve-not-sent` は状態を `rejected` に変更するだけで、その場では投稿しない。
+次の `run` または Cron で、記事の公開日時が対象期間内なら再試行する。
+配信処理中や、既に `sent` / `rejected` の記事はこの操作で変更できない。
+厳密な一回だけの配送を保証する仕組みではないため、投稿結果を確認せずに状態を解除したり、履歴を消したりしない。
+
+## ファイル構成
+
+```text
+.
+├── README.md                    全体像・設定・運用の入口
+├── .github/workflows/ci.yml      GitHub の push / PR でチェック
+├── .secrets.example.json        本番・管理 CLI 用の空の秘密設定例
+├── .dev.vars.example            ローカル Worker 用の空の秘密設定例
+├── wrangler.jsonc               Worker・Cron・SQLite の設定
+├── worker-configuration.d.ts     pnpm types で生成する型
+├── package.json                 コマンド・依存パッケージ
+├── pnpm-lock.yaml               依存のバージョン固定
+├── src/
+│   ├── index.ts                 管理 API・定期実行・配信履歴
+│   ├── sources.ts               情報源
+│   ├── feeds.ts                 フィード取得・解析・記事選定
+│   └── discord.ts               通知文の整形・Webhook 投稿
+├── scripts/
+│   ├── preview.ts               履歴を使わないローカルプレビュー
+│   └── control.ts               本番・ローカルの管理 API 呼び出し
+└── tests/
+    ├── worker.test.ts           Workers / SQLite / Discord の振る舞い
+    ├── control.test.ts          管理 CLI の認証・要求
+    └── fixtures/                模擬の設定データ
+```
+
+## GitHub での管理
+
+このディレクトリが単独の Git リポジトリのルート。
+`pnpm-lock.yaml`、`wrangler.jsonc`、空の設定例を含めて管理し、実際の秘密設定・`node_modules/`・`.wrangler/` はコミットしない。
+
+[GitHub Actions の CI](.github/workflows/ci.yml) は push と Pull Request で、依存の固定インストール → 型チェック → テスト → Worker の dry-run を実行する。
+Discord Webhook や Cloudflare 認証を登録する必要はない。
+配置は手動の `pnpm run deploy` で行う。
+
+GitHub CLI を用意したうえで、まだ GitHub リポジトリを用意していない場合の作成例（非公開）：
+
+```sh
+gh auth login
+gh repo create ai-news-discord --private --source . --remote origin --push
+```
+
+既に GitHub リポジトリがあり、ローカルに `origin` がまだない場合は、その URL を登録して送る。
+
+```sh
+git remote add origin git@github.com:YOUR-ACCOUNT/ai-news-discord.git
+git push -u origin main
+```
+
+## 公式ドキュメント
 
 - [Cloudflare Cron の時刻と設定](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+- [Cloudflare の秘密設定と同時デプロイ](https://developers.cloudflare.com/workers/configuration/secrets/)
 - [Durable Object の永続状態と外部通信](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/)
-- [Discord Webhook の投稿確認・文字数制限・メンション制御](https://docs.discord.com/developers/resources/webhook)
+- [Discord Webhook の作成・投稿確認](https://docs.discord.com/developers/resources/webhook)
 - [Discord のレート制限](https://docs.discord.com/developers/topics/rate-limits)
