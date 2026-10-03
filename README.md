@@ -1,5 +1,7 @@
 # AI News Discord
 
+<img src="assets/ai-news-icon.png" alt="AI News のアイコン" width="128" height="128">
+
 AI エージェント・LLM に関する公開フィードの更新を集め、毎日 **8:00・16:00・翌 0:00（日本時間）** に Discord へ配信する。
 Cloudflare 上で実行するため、PC の常時起動は不要。
 
@@ -132,6 +134,7 @@ Worker のテストは Workers ランタイムと SQLite を使い、外部フ�
 Discord のサーバー設定 → 連携サービス → ウェブフックで Webhook を作成し、投稿先チャンネルを選ぶ。
 作成にはサーバー側の「ウェブフックの管理」権限が必要になる。
 Webhook URL をコピーして、次の秘密設定ファイルに保存する。
+名前の横の画像を変更すると、通知の送信者アイコンを設定できる。[採用アイコン](assets/ai-news-icon.png)を使う。
 
 ### 2. 秘密設定を用意する
 
