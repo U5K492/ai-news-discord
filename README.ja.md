@@ -323,7 +323,8 @@ pnpm control https://ai-news-discord.YOUR-SUBDOMAIN.workers.dev resolve-not-sent
 ├── package.json                 コマンド・依存パッケージ
 ├── pnpm-lock.yaml               依存のバージョン固定
 ├── src/
-│   ├── index.ts                 管理 API・定期実行・配信履歴
+│   ├── index.ts                 管理 API・定期実行
+│   ├── delivery.ts              ニュース配信・配信履歴・同時実行の制御
 │   ├── sources.ts               情報源
 │   ├── feeds.ts                 フィード取得・解析・記事選定
 │   └── discord.ts               通知文の整形・Webhook 投稿

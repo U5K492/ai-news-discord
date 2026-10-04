@@ -323,7 +323,8 @@ This is not an exactly-once delivery guarantee. Confirm the result before resolv
 ├── package.json                 Commands and dependencies
 ├── pnpm-lock.yaml               Dependency lockfile
 ├── src/
-│   ├── index.ts                 Management API, scheduled runs, and history
+│   ├── index.ts                 Management API and scheduled runs
+│   ├── delivery.ts              News delivery, history, and concurrency control
 │   ├── sources.ts               Feed sources
 │   ├── feeds.ts                 Feed collection, parsing, and selection
 │   └── discord.ts               Message formatting and webhook delivery
