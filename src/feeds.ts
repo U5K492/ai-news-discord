@@ -1,5 +1,5 @@
 import { XMLParser, XMLValidator } from "fast-xml-parser";
-import he from "he";
+import { decode } from "he";
 import { SOURCES, type Source } from "./sources";
 
 export type Article = { title: string; url: string; summary: string; published: string; source: string; priority: number };
@@ -20,7 +20,7 @@ function text(value: unknown): string {
 }
 
 export function clean(value: string): string {
-  return he.decode(value.replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
+  return decode(value.replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
 }
 
 export function canonicalUrl(raw: string): string {

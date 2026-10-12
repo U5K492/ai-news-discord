@@ -16,6 +16,9 @@ updates:
           - wrangler
           - "@cloudflare/*"
       npm-minor-and-patch:
+        exclude-patterns:
+          - wrangler
+          - "@cloudflare/*"
         update-types:
           - minor
           - patch
